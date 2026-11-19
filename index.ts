@@ -151,7 +151,12 @@ const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 // Escaped bold markers, bold markers, or a [[pill]] of 1-32 characters.
 const INLINE = /(\\*)(\*\*|__)|\[\[([^\[\]\n]{1,32})\]\]/g;
 
-/** Apply colors to assistant Markdown, leaving code blocks, inline code and headings alone. */
+// Keep single-line links intact: the `[` in ANSI sequences can be parsed as a link delimiter.
+const LINK_LABEL = /\[(?:\\.|`+(?!`)[^`]*`+(?!`)|[^\[\]\\`]|\[(?:\\.|[^\[\]\\])*\])*\]/;
+const LINK_TARGET = /\((?:\\.|[^()\\]|\((?:\\.|[^()\\])*\))*\)|\[(?:\\.|[^\[\]\\])*\]/;
+const PROTECTED_INLINE = new RegExp(`(\`+[^\`]*?\`+|${/(?<!\\)(?:\\\\)*!?/.source}${LINK_LABEL.source}(?:${LINK_TARGET.source}))`, "g");
+
+/** Apply colors to assistant Markdown, leaving code and link spans intact. */
 export function decorate(markdown: string, palette: Palette): string {
 	const [open, close] = palette.bold("\u0000").split("\u0000") as [string, string];
 	const out: string[] = [];
@@ -203,15 +208,15 @@ function pill(label: string, palette: Palette): string {
 }
 
 function decorateLine(line: string, palette: Palette, open: string, close: string): string {
-	// Odd parts are inline code spans, which stay untouched.
-	const parts = line.replace(LEAD_LABEL, (_, before: string, label: string, after: string) => before + withLabelIcon(label) + after).split(/(`+[^`]*?`+)/g);
+	// Odd parts are code or link spans, which stay untouched.
+	const parts = line.replace(LEAD_LABEL, (_, before: string, label: string, after: string) => before + withLabelIcon(label) + after).split(PROTECTED_INLINE);
 	let result = "";
 	let inBold: string | undefined;
 	const reopen = () => (inBold ? `\x1b[1m${open}` : "");
 	for (let i = 0; i < parts.length; i++) {
 		const part = parts[i];
 		if (i % 2 === 1) {
-			// Pi's code color ends with a foreground reset; restore the bold color after it.
+			// Pi styles code and links separately; restore the surrounding bold color.
 			result += inBold ? `${part}${open}` : part;
 			continue;
 		}

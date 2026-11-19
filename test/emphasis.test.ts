@@ -65,6 +65,16 @@ describe("what is left alone", () => {
 		expect(plain(block)).toBe(block);
 	});
 	test("inline code", () => expect(plain("`[[Done]] → **x**`")).toBe("`[[Done]] → **x**`"));
+	test.each([
+		"[**v3.6.0**](https://example.com)",
+		"[__Release__ [notes] (`v3.6.0`)](https://example.com/release_(3))",
+		"[**Check:** ✓ \\]](https://example.com)",
+		"![**Release**](release.png)",
+		"[**Release**][release]",
+	])("preserves %s while coloring adjacent bold text", (link) => {
+		const ansi = { ...palette, bold: (s: string) => `\x1b[34m${s}\x1b[39m` };
+		expect(decorate(`${link} and **details**`, ansi)).toBe(`${link} and **\x1b[34mdetails\x1b[39m**`);
+	});
 	test("escaped asterisks", () => expect(plain("\\*\\*not bold\\*\\*")).toBe("\\*\\*not bold\\*\\*"));
 });
 
