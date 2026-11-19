@@ -148,13 +148,63 @@ export function createPalette(theme: ThemeLike, boldColor = "mdLink"): Palette {
 }
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
-// Escaped bold markers, bold markers, or a [[pill]] of 1-32 characters.
-const INLINE = /(\\*)(\*\*|__)|\[\[([^\[\]\n]{1,32})\]\]/g;
+const PILL = /\[\[([^\[\]\n]{1,32})\]\]/;
+const INLINE = new RegExp(`${/(\\*)(\*\*|__)/.source}|${PILL.source}`, "g");
 
 // Keep single-line links intact: the `[` in ANSI sequences can be parsed as a link delimiter.
-const LINK_LABEL = /\[(?:\\.|`+(?!`)[^`]*`+(?!`)|[^\[\]\\`]|\[(?:\\.|[^\[\]\\])*\])*\]/;
-const LINK_TARGET = /\((?:\\.|[^()\\]|\((?:\\.|[^()\\])*\))*\)|\[(?:\\.|[^\[\]\\])*\]/;
-const PROTECTED_INLINE = new RegExp(`(\`+[^\`]*?\`+|${/(?<!\\)(?:\\\\)*!?/.source}${LINK_LABEL.source}(?:${LINK_TARGET.source}))`, "g");
+const CODE_SPAN = /`+[^`]*?`+/;
+const LINK_LABEL = /(?<!\\)(?:\\\\)*!?\[(?:\\.|`+(?!`)[^`]*`+(?!`)|[^\[\]\\`]|\[(?:\\.|[^\[\]\\])*\])*\](?=\(|\[)/;
+const INLINE_START = new RegExp(`${CODE_SPAN.source}|${PILL.source}|${LINK_LABEL.source}`, "g");
+const REFERENCE_END = /\[(?:\\.|[^\[\]\\])*\]/y;
+const ANGLE_DESTINATION = /<(?:\\.|[^<>\\])*>/y;
+const LINK_END = /(?:[ \t]+(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\((?:\\.|[^()\\])*\)))?[ \t]*\)/y;
+
+function linkEnd(line: string, start: number): number | undefined {
+	if (line[start] === "[") {
+		REFERENCE_END.lastIndex = start;
+		return REFERENCE_END.test(line) ? REFERENCE_END.lastIndex : undefined;
+	}
+
+	let i = start + 1;
+	while (line[i] === " " || line[i] === "\t") i++;
+	if (line[i] === "<") {
+		ANGLE_DESTINATION.lastIndex = i;
+		if (!ANGLE_DESTINATION.test(line)) return undefined;
+		i = ANGLE_DESTINATION.lastIndex;
+	} else {
+		let depth = 0;
+		for (; i < line.length; i++) {
+			const ch = line[i];
+			if (ch === " " || ch === "\t") break;
+			if (ch === "\\" && /[\\()]/.test(line[i + 1] ?? "")) i++;
+			else if (ch === "(") depth++;
+			else if (ch === ")") {
+				if (depth === 0) break;
+				depth--;
+			}
+		}
+		if (depth !== 0) return undefined;
+	}
+	LINK_END.lastIndex = i;
+	return LINK_END.test(line) ? LINK_END.lastIndex : undefined;
+}
+
+function splitProtectedInline(line: string): string[] {
+	const parts: string[] = [];
+	let proseStart = 0;
+	for (let match = INLINE_START.exec(line); match; match = INLINE_START.exec(line)) {
+		if (match[1] !== undefined) continue; // A pill belongs to prose, even if a link or note follows it.
+		const end = match[0].startsWith("`") ? INLINE_START.lastIndex : linkEnd(line, INLINE_START.lastIndex);
+		if (end === undefined) {
+			INLINE_START.lastIndex = match.index + 1; // An invalid link label can contain valid inline spans.
+			continue;
+		}
+		parts.push(line.slice(proseStart, match.index), line.slice(match.index, end));
+		proseStart = INLINE_START.lastIndex = end;
+	}
+	parts.push(line.slice(proseStart));
+	return parts;
+}
 
 /** Apply colors to assistant Markdown, leaving code and link spans intact. */
 export function decorate(markdown: string, palette: Palette): string {
@@ -209,7 +259,7 @@ function pill(label: string, palette: Palette): string {
 
 function decorateLine(line: string, palette: Palette, open: string, close: string): string {
 	// Odd parts are code or link spans, which stay untouched.
-	const parts = line.replace(LEAD_LABEL, (_, before: string, label: string, after: string) => before + withLabelIcon(label) + after).split(PROTECTED_INLINE);
+	const parts = splitProtectedInline(line.replace(LEAD_LABEL, (_, before: string, label: string, after: string) => before + withLabelIcon(label) + after));
 	let result = "";
 	let inBold: string | undefined;
 	const reopen = () => (inBold ? `\x1b[1m${open}` : "");

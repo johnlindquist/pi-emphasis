@@ -33,6 +33,10 @@ describe("pills", () => {
 		expect(plain("[[Fail: 3 tests]]")).toBe("|\uf00d Failed: 3 tests|");
 	});
 	test("a label's own glyph wins over the table's", () => expect(plain("[[\uf0e7 Done]]")).toBe("|\uf0e7 Done|"));
+	test("pills still render immediately before a link or note", () => {
+		expect(plain("[[Done]][**details**](https://example.com)")).toBe("|\uf00c Done|[**details**](https://example.com)");
+		expect(plain("[[Done]](see above)")).toBe("|\uf00c Done|(see above)");
+	});
 	test("labels over 32 characters are left alone", () => {
 		const long = `[[${"x".repeat(33)}]]`;
 		expect(plain(long)).toBe(long);
@@ -68,12 +72,19 @@ describe("what is left alone", () => {
 	test.each([
 		"[**v3.6.0**](https://example.com)",
 		"[__Release__ [notes] (`v3.6.0`)](https://example.com/release_(3))",
+		"[**API docs**](https://example.com/a(b(c)d)e)",
+		'[**API docs**](https://example.com "See the closing ) in **this title**")',
+		"[**API docs**](https://example.com/a\\)b)",
+		"[**API docs**](<https://example.com/a(b>)",
 		"[**Check:** ✓ \\]](https://example.com)",
 		"![**Release**](release.png)",
 		"[**Release**][release]",
 	])("preserves %s while coloring adjacent bold text", (link) => {
 		const ansi = { ...palette, bold: (s: string) => `\x1b[34m${s}\x1b[39m` };
 		expect(decorate(`${link} and **details**`, ansi)).toBe(`${link} and **\x1b[34mdetails\x1b[39m**`);
+	});
+	test("an unfinished link does not swallow the remaining prose", () => {
+		expect(plain("[**Docs**](https://example.com/a(b(c) and **notes**")).toBe("[**<mdLink>Docs</>**](https://example.com/a(b(c) and **<mdLink>notes</>**");
 	});
 	test("escaped asterisks", () => expect(plain("\\*\\*not bold\\*\\*")).toBe("\\*\\*not bold\\*\\*"));
 });
