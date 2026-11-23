@@ -164,6 +164,9 @@ export function decorate(markdown: string, palette: Palette): string {
 		} else if (fenceMatch) {
 			fence = fenceMatch[1];
 			out.push(line);
+		} else if (line.includes("@")) {
+			// ANSI tails can become part of an email autolink; let Pi render the source line.
+			out.push(line);
 		} else if (/^ {0,3}#{1,6}\s/.test(line)) {
 			out.push(line.replace(/^( {0,3}#{1,6}\s+)(.+)$/, (_, hashes: string, title: string) => hashes + withLabelIcon(title))); // Pi already colors headings.
 		} else {
@@ -290,6 +293,7 @@ export default function emphasis(pi: ExtensionAPI) {
 	let built: { theme: ThemeLike; palette: Palette } | undefined;
 	pi.on("session_start", (_event, ctx) => {
 		if (ctx.mode !== "tui") return;
+		// SAFETY: Pi's Theme provides the three methods required by ThemeLike.
 		currentTheme = () => ctx.ui.theme as unknown as ThemeLike;
 	});
 	// The rules travel with the renderer: only a session that draws pills is told to write them.
